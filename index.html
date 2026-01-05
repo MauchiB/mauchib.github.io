@@ -44,62 +44,108 @@
     </div>
 
     <script>
-        const tg = window.Telegram.WebApp;
-        tg.ready();
-        tg.expand();
+    const tg = window.Telegram.WebApp;
+    console.log("Telegram WebApp object:", tg);
+    console.log("Init Data:", tg.initData);
+    tg.ready();
+    tg.expand();
 
-        // Данные (позже ты будешь получать их через fetch с FastAPI)
-        const mockChats = [
-            { id: '1', name: 'Jarvis GPT-4o', lastMsg: 'Чем я могу вам помочь сегодня?', time: '12:45', unread: 2, icon: '🤖' },
-            { id: '2', name: 'Claude 3.5 Sonnet', lastMsg: 'Анализ данных завершен.', time: 'Вчера', unread: 0, icon: '🧠' },
-            { id: '3', name: 'DALL-E 3 Artist', lastMsg: 'Картинка сгенерирована!', time: 'Пн', unread: 0, icon: '🎨' },
-            { id: '4', name: 'DeepSeek Coder', lastMsg: 'Ошибка в 45 строке исправлена.', time: '01.01', unread: 0, icon: '💻' }
-        ];
+    // 1. Указываем адрес твоего FastAPI сервера
+    // Если тестируешь локально — используй Ngrok (см. ниже), 
+    // так как GitHub (https) не сможет сделать запрос на localhost (http)
+    const API_URL_POST = "https://w6949pzb-8000.euw.devtunnels.ms/api/v1/select-chat"; // Заменить на твой URL
+    const API_URL_GET = "https://w6949pzb-8000.euw.devtunnels.ms/api/v1/chats"; // Заменить на твой URL
 
-        // Функция отрисовки чата
-        function renderChats(chats) {
+    async function loadChats() {
+        try {
+            // Показываем загрузку (опционально)
             const container = document.getElementById('chat-list');
-            container.innerHTML = '';
+            container.innerHTML = '<p class="text-center hint-text py-10">Загрузка чатов...</p>';
 
-            chats.forEach(chat => {
-                const card = document.createElement('div');
-                card.className = 'chat-card flex items-center p-4 rounded-2xl shadow-sm cursor-pointer';
-                card.onclick = () => selectChat(chat.id);
+            console.log("Полная строка initData:", tg.initData);
 
-                card.innerHTML = `
-                    <div class="text-3xl mr-4 bg-gray-100 w-12 h-12 flex items-center justify-center rounded-xl">
-                        ${chat.icon}
-                    </div>
-                    <div class="flex-1 overflow-hidden">
-                        <div class="flex justify-between items-center mb-1">
-                            <h3 class="font-semibold truncate">${chat.name}</h3>
-                            <span class="hint-text text-xs">${chat.time}</span>
-                        </div>
-                        <p class="hint-text text-sm truncate">${chat.lastMsg}</p>
-                    </div>
-                    ${chat.unread > 0 ? `<span class="badge ml-3 px-2 py-0.5 rounded-full text-[10px] font-bold">${chat.unread}</span>` : ''}
-                `;
-                container.appendChild(card);
+            // 2. Делаем запрос к FastAPI
+            const response = await fetch(API_URL_GET, {
+                method: "GET",
+                headers: {
+                    // Тот самый "безопасный конверт" для авторизации
+                    "Authorization": `tma ${tg.initData}`
+                }
             });
-        }
 
-        // Действие при клике на чат
-        function selectChat(id) {
-            tg.HapticFeedback.impactOccurred('medium');
+            if (!response.ok) throw new Error('Ошибка сервера');
+
+            const data = await response.json();
             
-            // Отправляем ID выбранного чата обратно боту
-            tg.sendData(JSON.stringify({ action: 'select_chat', chat_id: id }));
+            // Если пришел объект типа {"chats": [...]}, берем массив
+            const chats = data.chats || data; 
+
+            if (chats.length === 0) {
+                document.getElementById('empty-state').classList.remove('hidden');
+                container.innerHTML = '';
+            } else {
+                document.getElementById('empty-state').classList.add('hidden');
+                renderChats(chats);
+            }
+
+        } catch (error) {
+            console.error("Ошибка:", error);
+            document.getElementById('chat-list').innerHTML = 
+                `<p class="text-center text-red-500 py-10">Не удалось загрузить чаты</p>`;
         }
+    }
 
-        // Установка фото пользователя из TG
-        if (tg.initDataUnsafe.user) {
-            const user = tg.initDataUnsafe.user;
-            document.getElementById('user-photo').src = user.photo_url || `https://ui-avatars.com/api/?name=${user.first_name}`;
-        }
+    function renderChats(chats) {
+        const container = document.getElementById('chat-list');
+        container.innerHTML = '';
 
-        // Запуск
-        renderChats(mockChats);
+        chats.forEach(chat => {
+            const card = document.createElement('div');
+            card.className = 'chat-card flex items-center p-4 rounded-2xl shadow-sm cursor-pointer mb-3';
+            card.onclick = () => selectChat(chat.id);
 
-    </script>
+            // Подстраиваем под поля, которые присылает твой FastAPI
+            card.innerHTML = `
+                <div class="text-3xl mr-4 bg-gray-100 w-12 h-12 flex items-center justify-center rounded-xl">
+                    ${chat.icon || '🤖'}
+                </div>
+                <div class="flex-1 overflow-hidden">
+                    <div class="flex justify-between items-center mb-1">
+                        <h3 class="font-semibold truncate">${chat.name}</h3>
+                        <span class="hint-text text-xs">${chat.time || ''}</span>
+                    </div>
+                    <p class="hint-text text-sm truncate">${chat.lastMsg || chat.lastMessage || ''}</p>
+                </div>
+                ${chat.unread > 0 ? `<span class="badge ml-3 px-2 py-0.5 rounded-full text-[10px] font-bold">${chat.messages}</span>` : ''}
+            `;
+            container.appendChild(card);
+        });
+    }
+
+    function selectChat(id) {
+        tg.HapticFeedback.impactOccurred('medium');
+
+        fetch(`${API_URL_POST}`, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ 
+                session_id: id, 
+                user_id: tg.initDataUnsafe.user.id 
+            })
+            
+        }).then(() => {
+            tg.close(); 
+        });
+    }
+
+    // Установка фото пользователя
+    if (tg.initDataUnsafe.user) {
+        const user = tg.initDataUnsafe.user;
+        document.getElementById('user-photo').src = user.photo_url || `https://ui-avatars.com/api/?name=${user.first_name}`;
+    }
+
+    // Запускаем загрузку данных при старте
+    loadChats();
+</script>
 </body>
 </html>
